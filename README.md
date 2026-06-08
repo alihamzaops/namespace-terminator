@@ -21,7 +21,7 @@ This is a forceful recovery tool. It can orphan resources that still exist behin
 Once release automation is enabled, install with:
 
 ```bash
-brew tap alihamzaoriginal/homebrew-tap
+brew tap alihamzaops/homebrew-tap
 brew install nst
 ```
 
@@ -123,7 +123,7 @@ Run tests:
 go test ./...
 ```
 
-To publish Homebrew formulas to the external tap repository, add a `TAP_GITHUB_TOKEN` GitHub Actions secret with permission to write to `alihamzaoriginal/homebrew-tap`.
+To publish Homebrew formulas to the external tap repository, add a `TAP_GITHUB_TOKEN` GitHub Actions secret with permission to write to `alihamzaops/homebrew-tap`.
 
 ## Security Notes
 
