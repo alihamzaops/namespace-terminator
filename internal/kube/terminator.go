@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -37,6 +38,10 @@ type RunRequest struct {
 	Names          []string
 	AllTerminating bool
 	DryRun         bool
+	// Targets, if non-empty, skips the internal ResolveTargets call so the CLI
+	// does not issue a second list request after the confirmation prompt.
+	Targets       []string
+	LabelSelector string // label selector filter used when AllTerminating is true
 }
 
 type RunResponse struct {
@@ -111,42 +116,56 @@ func BuildRESTConfig(cfg Config) (*rest.Config, error) {
 func Run(ctx context.Context, client kubernetes.Interface, req RunRequest, timeout time.Duration) (RunResponse, error) {
 	mode := resolveMode(req.AllTerminating)
 
-	targets, err := ResolveTargets(ctx, client, req.Names, req.AllTerminating)
-	if err != nil {
-		return RunResponse{}, err
+	targets := req.Targets
+	if len(targets) == 0 {
+		var err error
+		targets, err = ResolveTargets(ctx, client, req.Names, req.AllTerminating, req.LabelSelector)
+		if err != nil {
+			return RunResponse{}, err
+		}
 	}
 
 	response := RunResponse{
 		Mode:    mode,
 		DryRun:  req.DryRun,
 		Targets: targets,
-		Results: make([]Result, 0, len(targets)),
+		Results: make([]Result, len(targets)),
 	}
 
 	if req.DryRun {
-		for _, namespace := range targets {
-			response.Results = append(response.Results, Result{
+		for i, namespace := range targets {
+			response.Results[i] = Result{
 				Namespace: namespace,
 				Action:    "terminate",
 				Status:    "dry_run",
 				Message:   "namespace would be force-terminated",
-			})
+			}
 		}
 		return response, nil
 	}
 
-	for _, namespace := range targets {
-		result := terminateNamespace(ctx, client, namespace, timeout)
-		response.Results = append(response.Results, result)
+	var wg sync.WaitGroup
+	for i, namespace := range targets {
+		wg.Add(1)
+		go func(i int, ns string) {
+			defer wg.Done()
+			response.Results[i] = terminateNamespace(ctx, client, ns, timeout)
+		}(i, namespace)
 	}
+	wg.Wait()
 
 	return response, nil
 }
 
-func ResolveTargets(ctx context.Context, client kubernetes.Interface, names []string, allTerminating bool) ([]string, error) {
+// ResolveTargets returns the sorted, deduplicated list of namespaces to act on.
+// When allTerminating is true it lists all namespaces from the cluster,
+// optionally filtered by labelSelector, and keeps only those that are stuck.
+func ResolveTargets(ctx context.Context, client kubernetes.Interface, names []string, allTerminating bool, labelSelector string) ([]string, error) {
 	switch {
 	case allTerminating:
-		items, err := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{})
+		items, err := client.CoreV1().Namespaces().List(ctx, metav1.ListOptions{
+			LabelSelector: labelSelector,
+		})
 		if err != nil {
 			return nil, fmt.Errorf("list namespaces: %w", err)
 		}

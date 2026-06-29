@@ -1,4 +1,4 @@
-module github.com/alihamzaoriginal/namespace-terminator
+module github.com/alihamzaops/namespace-terminator
 
 go 1.25.0
 

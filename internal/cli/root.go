@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/alihamzaoriginal/namespace-terminator/internal/kube"
+	"github.com/alihamzaops/namespace-terminator/internal/kube"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -24,6 +24,7 @@ type options struct {
 	dryRun         bool
 	yes            bool
 	output         string
+	selector       string
 	timeout        time.Duration
 	showVersion    bool
 }
@@ -57,13 +58,16 @@ func newRootCommand() *cobra.Command {
 	opts := options{}
 
 	cmd := &cobra.Command{
-		Use:   "nst <namespace> [<namespace> ...]",
-		Short: "Force terminate Kubernetes namespaces",
-		Long: "nst force-terminates Kubernetes namespaces by explicit name or by selecting all namespaces stuck in the Terminating phase.",
+		Use:     "nst <namespace> [<namespace> ...]",
+		Short:   "Force terminate Kubernetes namespaces",
+		Long:    "nst force-terminates Kubernetes namespaces by explicit name or by selecting all namespaces stuck in the Terminating phase.",
 		Version: version,
 		Args: func(cmd *cobra.Command, args []string) error {
 			if opts.allTerminating && len(args) > 0 {
 				return errors.New("namespace names cannot be provided with --all-terminating")
+			}
+			if opts.selector != "" && !opts.allTerminating {
+				return errors.New("--selector can only be used with --all-terminating")
 			}
 			if opts.timeout <= 0 {
 				return errors.New("timeout must be greater than 0")
@@ -88,7 +92,7 @@ func newRootCommand() *cobra.Command {
 		SilenceErrors: true,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if opts.showVersion {
-				_, err := fmt.Fprintln(os.Stdout, cmd.Version)
+				_, err := fmt.Fprintln(cmd.OutOrStdout(), cmd.Version)
 				return err
 			}
 
@@ -109,7 +113,7 @@ func newRootCommand() *cobra.Command {
 				return err
 			}
 
-			targets, err := kube.ResolveTargets(ctx, clientset, args, opts.allTerminating)
+			targets, err := kube.ResolveTargets(ctx, clientset, args, opts.allTerminating, opts.selector)
 			if err != nil {
 				return err
 			}
@@ -128,12 +132,14 @@ func newRootCommand() *cobra.Command {
 				Names:          args,
 				AllTerminating: opts.allTerminating,
 				DryRun:         opts.dryRun,
+				Targets:        targets,
+				LabelSelector:  opts.selector,
 			}, opts.timeout)
 			if err != nil {
 				return err
 			}
 
-			if err := printResponse(os.Stdout, opts.output, response); err != nil {
+			if err := printResponse(cmd.OutOrStdout(), opts.output, response); err != nil {
 				return err
 			}
 
@@ -153,6 +159,7 @@ func newRootCommand() *cobra.Command {
 	flags.BoolVar(&opts.dryRun, "dry-run", false, "show namespaces that would be terminated without making changes")
 	flags.BoolVarP(&opts.yes, "yes", "y", false, "skip confirmation for bulk operations")
 	flags.StringVarP(&opts.output, "output", "o", "text", "output format: text or json")
+	flags.StringVarP(&opts.selector, "selector", "l", "", "label selector to filter namespaces (requires --all-terminating)")
 	flags.DurationVar(&opts.timeout, "timeout", kube.DefaultTimeout, "how long to wait for namespace deletion after clearing finalizers")
 	flags.BoolVar(&opts.showVersion, "version", false, "print nst version")
 
@@ -174,6 +181,11 @@ func hasOperationalFlags(cmd *cobra.Command) bool {
 }
 
 func confirmBulkOperation(targets []string) (bool, error) {
+	fi, err := os.Stdin.Stat()
+	if err == nil && fi.Mode()&os.ModeCharDevice == 0 {
+		return false, errors.New("stdin is not a terminal; use --yes to confirm non-interactively")
+	}
+
 	fmt.Fprintf(os.Stderr, "This will force-terminate %d namespace(s): %s\n", len(targets), strings.Join(targets, ", "))
 	fmt.Fprint(os.Stderr, "Continue? [y/N]: ")
 
@@ -187,7 +199,7 @@ func confirmBulkOperation(targets []string) (bool, error) {
 	return answer == "y" || answer == "yes", nil
 }
 
-func printResponse(out *os.File, format string, response kube.RunResponse) error {
+func printResponse(out io.Writer, format string, response kube.RunResponse) error {
 	if format == "json" {
 		return printJSON(out, response)
 	}
@@ -218,7 +230,7 @@ func printResponse(out *os.File, format string, response kube.RunResponse) error
 	return nil
 }
 
-func printJSON(out *os.File, payload any) error {
+func printJSON(out io.Writer, payload any) error {
 	encoder := json.NewEncoder(out)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(payload)

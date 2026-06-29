@@ -3,7 +3,7 @@ package main
 import (
 	"os"
 
-	"github.com/alihamzaoriginal/namespace-terminator/internal/cli"
+	"github.com/alihamzaops/namespace-terminator/internal/cli"
 )
 
 func main() {

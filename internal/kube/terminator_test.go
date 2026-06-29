@@ -19,7 +19,7 @@ func TestResolveTargetsExplicitNamesAreSortedAndUnique(t *testing.T) {
 
 	client := fake.NewSimpleClientset()
 
-	targets, err := ResolveTargets(context.Background(), client, []string{"beta", "alpha", "beta"}, false)
+	targets, err := ResolveTargets(context.Background(), client, []string{"beta", "alpha", "beta"}, false, "")
 	if err != nil {
 		t.Fatalf("ResolveTargets() error = %v", err)
 	}
@@ -57,7 +57,7 @@ func TestResolveTargetsAllTerminatingFiltersNamespaces(t *testing.T) {
 		},
 	)
 
-	targets, err := ResolveTargets(context.Background(), client, nil, true)
+	targets, err := ResolveTargets(context.Background(), client, nil, true, "")
 	if err != nil {
 		t.Fatalf("ResolveTargets() error = %v", err)
 	}
@@ -84,7 +84,7 @@ func TestResolveTargetsAllTerminatingWithoutMatchesErrors(t *testing.T) {
 		},
 	)
 
-	_, err := ResolveTargets(context.Background(), client, nil, true)
+	_, err := ResolveTargets(context.Background(), client, nil, true, "")
 	if !errors.Is(err, ErrNoTerminatingNamespaces) {
 		t.Fatalf("ResolveTargets() error = %v, want %v", err, ErrNoTerminatingNamespaces)
 	}
@@ -118,6 +118,56 @@ func TestRunDryRunReturnsTargetsWithoutMutating(t *testing.T) {
 		if response.Results[i].Status != "dry_run" {
 			t.Fatalf("Run() Results[%d].Status = %q, want dry_run", i, response.Results[i].Status)
 		}
+	}
+}
+
+func TestRunParallelTermination(t *testing.T) {
+	t.Parallel()
+
+	client := fake.NewSimpleClientset(
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns-a"}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns-b"}},
+		&corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: "ns-c"}},
+	)
+
+	response, err := Run(context.Background(), client, RunRequest{
+		Names:   []string{"ns-c", "ns-a", "ns-b"},
+		DryRun:  true,
+		Targets: []string{"ns-a", "ns-b", "ns-c"},
+	}, DefaultTimeout)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	// Results must be in the same order as Targets.
+	wantTargets := []string{"ns-a", "ns-b", "ns-c"}
+	if len(response.Results) != len(wantTargets) {
+		t.Fatalf("Run() len(Results) = %d, want %d", len(response.Results), len(wantTargets))
+	}
+	for i, want := range wantTargets {
+		if response.Results[i].Namespace != want {
+			t.Errorf("Run() Results[%d].Namespace = %q, want %q", i, response.Results[i].Namespace, want)
+		}
+	}
+}
+
+func TestRunUsesPreResolvedTargets(t *testing.T) {
+	t.Parallel()
+
+	// The fake client has no namespaces, but pre-resolved Targets bypasses ResolveTargets.
+	client := fake.NewSimpleClientset()
+
+	response, err := Run(context.Background(), client, RunRequest{
+		AllTerminating: true,
+		DryRun:         true,
+		Targets:        []string{"pre-a", "pre-b"},
+	}, DefaultTimeout)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+
+	if len(response.Targets) != 2 || response.Targets[0] != "pre-a" {
+		t.Fatalf("Run() Targets = %v, want [pre-a pre-b]", response.Targets)
 	}
 }
 
