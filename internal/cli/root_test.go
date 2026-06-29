@@ -44,3 +44,21 @@ func TestRootCommandWithFlagsButNoTargetsErrors(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
+
+func TestRootCommandSelectorWithoutAllTerminatingErrors(t *testing.T) {
+	t.Parallel()
+
+	cmd := newRootCommand()
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetErr(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--selector", "team=payments", "some-namespace"})
+
+	err := cmd.Execute()
+	if err == nil {
+		t.Fatal("expected an error when --selector is used without --all-terminating")
+	}
+
+	if !strings.Contains(err.Error(), "--selector can only be used with --all-terminating") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

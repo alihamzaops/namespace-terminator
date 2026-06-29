@@ -21,7 +21,7 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/alihamzaoriginal/namespace-terminator/internal/cli.version={{.Version}}
+      - -X github.com/alihamzaops/namespace-terminator/internal/cli.version={{.Version}}
 
 archives:
   - id: default
@@ -55,7 +55,7 @@ changelog:
 
 release:
   github:
-    owner: alihamzaoriginal
+    owner: alihamzaops
     name: namespace-terminator
 
 brews:
@@ -63,15 +63,28 @@ brews:
     ids:
       - default
     repository:
-      owner: alihamzaoriginal
+      owner: alihamzaops
       name: homebrew-tap
       branch: main
       token: "{{ .Env.TAP_GITHUB_TOKEN }}"
     directory: Formula
-    homepage: https://github.com/alihamzaoriginal/namespace-terminator
+    homepage: https://github.com/alihamzaops/namespace-terminator
     description: Force terminate stuck Kubernetes namespaces
     license: MIT
     test: |
       system "#{bin}/nst", "--help"
     install: |
       bin.install "nst"
+
+scoops:
+  - name: nst
+    ids:
+      - default
+    repository:
+      owner: alihamzaops
+      name: scoop-bucket
+      branch: main
+      token: "{{ .Env.SCOOP_GITHUB_TOKEN }}"
+    homepage: https://github.com/alihamzaops/namespace-terminator
+    description: Force terminate stuck Kubernetes namespaces
+    license: MIT
